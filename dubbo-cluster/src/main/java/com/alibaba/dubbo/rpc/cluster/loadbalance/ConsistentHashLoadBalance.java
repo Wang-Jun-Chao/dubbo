@@ -32,7 +32,6 @@ import java.util.concurrent.ConcurrentMap;
 
 /**
  * ConsistentHashLoadBalance
- *
  */
 public class ConsistentHashLoadBalance extends AbstractLoadBalance {
 
@@ -51,31 +50,57 @@ public class ConsistentHashLoadBalance extends AbstractLoadBalance {
         return selector.select(invocation);
     }
 
+    /**
+     * 一致性哈希选择器
+     *
+     * @param <T>
+     */
     private static final class ConsistentHashSelector<T> {
 
+        /**
+         * 虚拟调用者
+         */
         private final TreeMap<Long, Invoker<T>> virtualInvokers;
 
+        /**
+         * 复制数
+         */
         private final int replicaNumber;
 
+        /**
+         * 一致性哈希值
+         */
         private final int identityHashCode;
 
+        /**
+         * 参数索引
+         */
         private final int[] argumentIndex;
 
         ConsistentHashSelector(List<Invoker<T>> invokers, String methodName, int identityHashCode) {
             this.virtualInvokers = new TreeMap<Long, Invoker<T>>();
             this.identityHashCode = identityHashCode;
             URL url = invokers.get(0).getUrl();
+
+            // 获取复制份数
             this.replicaNumber = url.getMethodParameter(methodName, "hash.nodes", 160);
+            // 获取参数索引
             String[] index = Constants.COMMA_SPLIT_PATTERN.split(url.getMethodParameter(methodName, "hash.arguments", "0"));
             argumentIndex = new int[index.length];
             for (int i = 0; i < index.length; i++) {
                 argumentIndex[i] = Integer.parseInt(index[i]);
             }
+
+            // 为每个调用都创建一致性哈希节点
             for (Invoker<T> invoker : invokers) {
+                // 获取调用者地址
                 String address = invoker.getUrl().getAddress();
                 for (int i = 0; i < replicaNumber / 4; i++) {
+                    // 地址拼上序号后做MD5计算
                     byte[] digest = md5(address + i);
+                    // 这里写写成一个for是为了重用生成的MD5摘要
                     for (int h = 0; h < 4; h++) {
+                        // 根据MD5的摘要信息生成hash值
                         long m = hash(digest, h);
                         virtualInvokers.put(m, invoker);
                     }
@@ -101,10 +126,10 @@ public class ConsistentHashLoadBalance extends AbstractLoadBalance {
 
         private Invoker<T> selectForKey(long hash) {
             Map.Entry<Long, Invoker<T>> entry = virtualInvokers.tailMap(hash, true).firstEntry();
-        	if (entry == null) {
-        		entry = virtualInvokers.firstEntry();
-        	}
-        	return entry.getValue();
+            if (entry == null) {
+                entry = virtualInvokers.firstEntry();
+            }
+            return entry.getValue();
         }
 
         private long hash(byte[] digest, int number) {
